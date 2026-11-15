@@ -1,0 +1,38 @@
+{
+  "page": 19,
+  "title": "Winning Material — Trapped Pieces",
+  "goal": "material",
+  "photo": "photos/page-019.jpg",
+  "puzzles": [
+    {
+      "id": "1",
+      "fen": "rnbqkb1r/pppppppp/8/7n/4N3/4P3/PPPP1PPP/RNBQKB1R w KQkq - 0 1",
+      "line": ["d1h5"]
+    },
+    {
+      "id": "2",
+      "fen": "r1b1kbnr/pppppppp/2n5/8/8/5N2/PPPPPPPq/RNBQKB1R w KQkq - 0 1",
+      "line": ["h1h2"]
+    },
+    {
+      "id": "3",
+      "fen": "rnbqk2r/pppp1ppp/5n2/4p3/8/b7/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "line": ["b1a3"]
+    },
+    {
+      "id": "4",
+      "fen": "rnbqkb1r/pppp1ppp/4p3/4n3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1",
+      "line": ["f3e5"]
+    },
+    {
+      "id": "5",
+      "fen": "rnb1kbnr/pppppppp/8/4q3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1",
+      "line": ["f3e5"]
+    },
+    {
+      "id": "6",
+      "fen": "rnbqkb1r/pppppppp/8/8/n7/1P6/P1PPPPPP/RNBQKBNR w KQkq - 0 1",
+      "line": ["b3a4"]
+    }
+  ]
+}

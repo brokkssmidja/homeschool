@@ -1,0 +1,7 @@
+# GitHub Pages reads robots.txt only from the domain root
+# (https://brokkssmidja.github.io/robots.txt), not from a project site.
+# This file is published at /homeschool/robots.txt, so crawlers never see it.
+# Each chess page also sends noindex, nofollow. That tag is what applies.
+
+User-agent: *
+Disallow: /homeschool/chess/
