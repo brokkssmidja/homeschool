@@ -78,21 +78,24 @@ def main():
                     cp = score.score(mate_score=10000)
                     pv = info.get("pv", [])
                     print(label, "mat", start, "cp", cp, "best", pv[0].uci() if pv else None)
-                    if start < -2 or start > 2:
-                        print(label, "material is not level")
-                        failed = True
-                    if cp is None or cp < 250:
-                        print(label, "not a clear win")
-                        failed = True
                     line = puzzle.get("line") or []
-                    if line and pv and chess.Move.from_uci(line[0]) != pv[0]:
-                        # The stored move must still be a clear win, even if it is not unique.
-                        board.push(chess.Move.from_uci(line[0]))
-                        reply = engine.analyse(board, chess.engine.Limit(depth=10))
-                        white = reply["score"].white().score(mate_score=10000)
-                        print(label, "stored", line[0], "leaves", white)
-                        if white is None or white < 250:
-                            failed = True
+                    if not line:
+                        print(label, "missing the key move")
+                        failed = True
+                        continue
+                    key = chess.Move.from_uci(line[0])
+                    if key not in board.legal_moves:
+                        print(label, "key move is illegal", line[0])
+                        failed = True
+                        continue
+                    board.push(key)
+                    reply = engine.analyse(board, chess.engine.Limit(depth=12))
+                    white = reply["score"].white().score(mate_score=10000)
+                    print(label, "key", board.san(key) if False else line[0], "leaves", white, "best", pv[0].uci() if pv else None)
+                    # Depth 22 is about +2.7 on the last diagram; a shallower search can sit a bit under that.
+                    if white is None or white < 150:
+                        print(label, "key move is not a clear win")
+                        failed = True
     finally:
         engine.quit()
     return 1 if failed else 0

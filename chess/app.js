@@ -282,19 +282,29 @@ async function onMove(from, to) {
   await afterAccepted(puzzle);
 }
 
+function uciOf(played) {
+  return played.from + played.to + (played.promotion || "");
+}
+
+/** White moves sit on even indexes of the stored line. The first one is the key move. */
+function onTheLine(puzzle, chess, uci) {
+  const index = chess.history().length - 1;
+  return Boolean(puzzle.line && puzzle.line[index] === uci);
+}
+
 async function accepts(puzzle, before, played, chess) {
   if (play.entry.data.goal === "mate") return chess.isCheckmate();
-  const uci = played.from + played.to + (played.promotion || "");
-  if (puzzle.line && puzzle.line[0] === uci && chess.history().length === 1) return true;
+  const uci = uciOf(played);
+  if (onTheLine(puzzle, chess, uci)) return true;
   try {
     const brain = await ensureEngine();
     const best = await brain.best(before);
     const reply = await brain.best(chess.fen());
     const bestWhite = toWhite(best.score || { type: "cp", value: 0 }, "w");
     const playedWhite = toWhite(reply.score || { type: "cp", value: 0 }, chess.turn());
-    return playedWhite >= 250 && playedWhite >= bestWhite - 150;
+    return playedWhite >= 180 && playedWhite >= bestWhite - 120;
   } catch {
-    return puzzle.line && puzzle.line[0] === uci;
+    return false;
   }
 }
 
@@ -311,17 +321,25 @@ async function afterAccepted() {
     }
     return;
   }
-  const gained = material(play.chess) >= play.startMaterial + 3;
+  const gained = material(play.chess) >= play.startMaterial + 2;
+  const scripted = play.entry.data.puzzles[play.index].line?.[play.chess.history().length];
   let replyUci = null;
-  try {
-    const brain = await ensureEngine();
-    const reply = await brain.best(play.chess.fen());
-    replyUci = reply.move;
-  } catch { /* the capture can still stand on its own */ }
+  if (scripted) {
+    const probe = new Chess(play.chess.fen());
+    const legal = probe.move({ from: scripted.slice(0, 2), to: scripted.slice(2, 4), promotion: scripted[4] || "q" });
+    if (legal) replyUci = scripted;
+  }
+  if (!replyUci) {
+    try {
+      const brain = await ensureEngine();
+      const reply = await brain.best(play.chess.fen());
+      replyUci = reply.move;
+    } catch { /* a capture that already wins can stand on its own */ }
+  }
   if (replyUci && replyUci !== "(none)") {
     const copy = new Chess(play.chess.fen());
     const replyMove = copy.move({ from: replyUci.slice(0, 2), to: replyUci.slice(2, 4), promotion: replyUci[4] || "q" });
-    if (replyMove && material(copy) < play.startMaterial + 3) {
+    if (replyMove && material(copy) < play.startMaterial + 2) {
       play.chess.move({ from: replyUci.slice(0, 2), to: replyUci.slice(2, 4), promotion: replyUci[4] || "q" });
       play.ground.set({ fen: play.chess.fen() });
       play.note = "Your move.";
@@ -379,9 +397,10 @@ function advance() {
 async function hint() {
   if (!play || play.busy) return;
   const puzzle = play.entry.data.puzzles[play.index];
-  let from = puzzle.line && puzzle.line[0] ? puzzle.line[0].slice(0, 2) : "";
-  let to = puzzle.line && puzzle.line[0] ? puzzle.line[0].slice(2, 4) : "";
-  if (play.chess.history().length) {
+  const step = puzzle.line && puzzle.line[play.chess.history().length];
+  let from = step ? step.slice(0, 2) : "";
+  let to = step ? step.slice(2, 4) : "";
+  if (!step && play.chess.history().length) {
     try {
       const brain = await ensureEngine();
       const best = await brain.best(play.chess.fen());
