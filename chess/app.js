@@ -259,6 +259,8 @@ function openPlay(id) {
 }
 
 function mountPuzzle() {
+  flashToken += 1;
+  clearTimeout(flashTimer);
   const { entry } = play;
   const puzzle = entry.data.puzzles[play.index];
   play.chess = new Chess(puzzle.fen);
@@ -279,7 +281,10 @@ function mountPuzzle() {
         <p class="score-pill">${scoreMarkup(entry.page)}</p>
       </div>
       <div class="stage">
-        <div class="board-wrap"><div id="board"></div></div>
+        <div class="board-column">
+          <div class="board-wrap"><div id="board"></div></div>
+          <p id="result" class="result" role="status" aria-live="polite" hidden></p>
+        </div>
         <div class="side">
           <p id="note" class="note"></p>
           <div class="actions">
@@ -324,11 +329,78 @@ function paintNote() {
   note.className = `note ${play.tone}`;
 }
 
+const MARK_OK = `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M7 12.5 10.2 15.7 17 8.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const MARK_NO = `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8 8l8 8M16 8l-8 8" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+
+let flashTimer = 0;
+let flashToken = 0;
+
+function showResult(kind, text, extra) {
+  const result = document.getElementById("result");
+  if (!result) return;
+  const more = extra ? `<span class="result-extra">${escapeHtml(extra)}</span>` : "";
+  result.hidden = false;
+  result.className = `result ${kind}`;
+  result.innerHTML = `${kind === "bad" ? MARK_NO : MARK_OK}<span class="result-copy"><span class="result-title">${escapeHtml(text)}</span>${more}</span>`;
+  play.note = extra ? `${text}. ${extra}` : text;
+  play.tone = kind === "bad" ? "bad" : kind === "help" ? "help" : "good";
+  paintNote();
+}
+
+function clearResult() {
+  const result = document.getElementById("result");
+  if (!result) return;
+  result.hidden = true;
+  result.className = "result";
+  result.textContent = "";
+}
+
+function flashSquares(from, to, kind) {
+  const wrap = document.querySelector("#view-play .board-wrap");
+  if (!wrap || !play?.ground || !from || !to) return;
+  const token = ++flashToken;
+  wrap.classList.remove("flash-good", "flash-bad");
+  void wrap.offsetWidth;
+  wrap.classList.add(kind === "bad" ? "flash-bad" : "flash-good");
+  const drawable = kind === "bad" ? {} : { drawable: { autoShapes: [] } };
+  play.ground.set({ lastMove: [from, to], ...drawable });
+  clearTimeout(flashTimer);
+  if (kind === "bad") {
+    flashTimer = setTimeout(() => {
+      if (token !== flashToken || !play?.ground) return;
+      wrap.classList.remove("flash-bad");
+      play.ground.set({ lastMove: false });
+    }, 1100);
+  }
+}
+
+function lastWhiteSquares() {
+  const moves = play.chess.history({ verbose: true });
+  for (let i = moves.length - 1; i >= 0; i -= 1) {
+    if (moves[i].color === "w") return [moves[i].from, moves[i].to];
+  }
+  return null;
+}
+
 function setMovable(on) {
   play.ground.set({
     fen: play.chess.fen(),
     turnColor: play.chess.turn() === "w" ? "white" : "black",
     movable: on ? { color: "white", dests: dests(play.chess) } : { color: undefined, dests: new Map() },
+  });
+}
+
+function snapBack() {
+  play.ground.set({
+    fen: play.chess.fen(),
+    turnColor: "white",
+    animation: { enabled: false },
+    movable: { color: "white", dests: dests(play.chess) },
+  });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (play?.ground) play.ground.set({ animation: { enabled: true } });
+    });
   });
 }
 
@@ -348,20 +420,20 @@ async function onMove(from, to) {
   }
   play.busy = true;
   setMovable(false);
+  clearResult();
   play.note = "Checking…";
   play.tone = "";
   paintNote();
   const ok = await accepts(puzzle, before, played, play.chess);
   if (!ok) {
     play.chess.undo();
-    play.note = "Try again.";
-    play.tone = "bad";
     play.busy = false;
-    setMovable(true);
-    paintNote();
+    snapBack();
+    showResult("bad", "Not quite, try again");
+    flashSquares(from, to, "bad");
     return;
   }
-  await afterAccepted(puzzle);
+  await afterAccepted(from, to);
 }
 
 function uciOf(played) {
@@ -390,16 +462,15 @@ async function accepts(puzzle, before, played, chess) {
   }
 }
 
-async function afterAccepted() {
+async function afterAccepted(from, to) {
   if (play.entry.data.goal === "mate") {
-    if (play.chess.isCheckmate()) finish("Mate.");
+    if (play.chess.isCheckmate()) finish(from, to);
     else {
       play.chess.undo();
-      play.note = "Try again.";
-      play.tone = "bad";
       play.busy = false;
-      setMovable(true);
-      paintNote();
+      snapBack();
+      showResult("bad", "Not quite, try again");
+      flashSquares(from, to, "bad");
     }
     return;
   }
@@ -426,13 +497,12 @@ async function afterAccepted() {
     if (replyMove && material(copy) < play.startMaterial + 2) {
       playUci(play.chess, replyUci);
       play.ground.set({ fen: play.chess.fen() });
-      play.note = "Your move.";
-      play.tone = "";
       play.hintLevel = 0;
       play.busy = false;
       setMovable(true);
       play.ground.set({ drawable: { autoShapes: [] } });
-      paintNote();
+      showResult("good", "Correct! Keep going");
+      flashSquares(from, to, "good");
       return;
     }
   }
@@ -441,38 +511,38 @@ async function afterAccepted() {
       playUci(play.chess, replyUci);
       play.ground.set({ fen: play.chess.fen() });
     }
-    finish("That’s the piece.");
+    finish(from, to);
     return;
   }
   if (replyUci && replyUci !== "(none)") {
     try { playUci(play.chess, replyUci); } catch { /* the reply was only a probe */ }
     play.ground.set({ fen: play.chess.fen() });
   }
-  play.note = "Keep going.";
-  play.tone = "good";
   play.hintLevel = 0;
   play.busy = false;
   setMovable(true);
   play.ground.set({ drawable: { autoShapes: [] } });
-  paintNote();
+  showResult("good", "Correct! Keep going");
+  flashSquares(from, to, "good");
 }
 
-function finish(message) {
+function finish(from, to) {
   const puzzle = play.entry.data.puzzles[play.index];
   const helped = play.revealed || play.usedHint;
   rememberOutcome(play.entry.page, puzzle.id, helped);
   if (helped) {
-    play.note = play.revealed
-      ? "Solved with the answer. It stays off the score."
-      : "Solved with a hint. It stays off the score.";
-    play.tone = "help";
+    showResult(
+      "help",
+      play.revealed ? "Solved with the answer" : "Solved with a hint",
+      "It stays off the score.",
+    );
   } else {
-    play.note = message;
-    play.tone = "good";
+    showResult("good", "Solved!");
   }
+  const squares = from && to ? [from, to] : lastWhiteSquares();
+  if (squares) flashSquares(squares[0], squares[1], "good");
   play.busy = true;
   setMovable(false);
-  paintNote();
   const score = playView.querySelector(".score-pill");
   if (score) score.innerHTML = scoreMarkup(play.entry.page);
   const next = document.getElementById("next");
@@ -545,7 +615,7 @@ async function showAnswer() {
     if (!moved) break;
   }
   play.ground.set({ fen: play.chess.fen() });
-  finish(play.entry.data.goal === "mate" ? "Mate." : "That’s the piece.");
+  finish();
 }
 
 function openCheck(id) {
