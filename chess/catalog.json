@@ -1,0 +1,14 @@
+[
+  {
+    "id": "003",
+    "page": 3,
+    "title": "Checkmate In One Move",
+    "file": "pages/003.json"
+  },
+  {
+    "id": "019",
+    "page": 19,
+    "title": "Winning Material: Trapped Pieces",
+    "file": "pages/019.json"
+  }
+]

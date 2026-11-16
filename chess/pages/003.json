@@ -1,0 +1,44 @@
+{
+  "page": 3,
+  "title": "Checkmate In One Move",
+  "goal": "mate",
+  "photo": "photos/page-003.jpg",
+  "puzzles": [
+    {
+      "id": "1",
+      "fen": "1kr5/ppp5/8/8/4Q3/8/3K2B1/8 w - - 0 1",
+      "solutions": ["Qxb7#"],
+      "line": ["e4b7"]
+    },
+    {
+      "id": "2",
+      "fen": "2k3r1/p3QRb1/1p6/8/8/8/PP1q4/K7 w - - 0 1",
+      "solutions": ["Qc7#"],
+      "line": ["e7c7"]
+    },
+    {
+      "id": "3",
+      "fen": "k7/p3q3/2p5/2Pp4/3P4/2K1P2Q/8/8 w - - 0 1",
+      "solutions": ["Qc8#"],
+      "line": ["h3c8"]
+    },
+    {
+      "id": "4",
+      "fen": "1rkr4/p6p/7Q/3p1p2/PP1Pp2p/K7/4B3/8 w - - 0 1",
+      "solutions": ["Qc6#"],
+      "line": ["h6c6"]
+    },
+    {
+      "id": "5",
+      "fen": "3r4/2r1k3/1p1p2P1/4p3/8/PP6/K4Q2/8 w - - 0 1",
+      "solutions": ["Qf7#"],
+      "line": ["f2f7"]
+    },
+    {
+      "id": "6",
+      "fen": "4k3/1p6/4K3/8/1Q6/8/8/8 w - - 0 1",
+      "solutions": ["Qe7#"],
+      "line": ["b4e7"]
+    }
+  ]
+}
