@@ -29,26 +29,86 @@ function saveScores(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
-function solvedSet(pageNumber) {
-  const data = loadScores();
-  const row = data.pages[String(pageNumber)];
-  return new Set(row && Array.isArray(row.solved) ? row.solved : []);
+const PIECE_WORD = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
+
+function pageRow(data, pageNumber) {
+  const key = String(pageNumber);
+  const row = data.pages[key] || {};
+  return {
+    solved: Array.isArray(row.solved) ? row.solved : [],
+    helped: Array.isArray(row.helped) ? row.helped : [],
+  };
 }
 
-function rememberSolve(pageNumber, puzzleId) {
+function solvedSet(pageNumber) {
+  return new Set(pageRow(loadScores(), pageNumber).solved);
+}
+
+function helpedSet(pageNumber) {
+  return new Set(pageRow(loadScores(), pageNumber).helped);
+}
+
+function scoreParts(pageNumber) {
+  return {
+    solved: solvedSet(pageNumber).size,
+    helped: helpedSet(pageNumber).size,
+  };
+}
+
+function scoreLabel(pageNumber) {
+  const { solved, helped } = scoreParts(pageNumber);
+  const main = `${solved} / 6`;
+  return helped ? `${main} · ${helped} with hint` : main;
+}
+
+function scoreMarkup(pageNumber) {
+  const { solved, helped } = scoreParts(pageNumber);
+  const hint = helped ? `<span class="with-hint"> · ${helped} with hint</span>` : "";
+  return `Score ${solved} / 6${hint}`;
+}
+
+function rememberOutcome(pageNumber, puzzleId, helped) {
   const data = loadScores();
   const key = String(pageNumber);
-  const row = data.pages[key] || { solved: [] };
-  if (!row.solved.includes(puzzleId)) row.solved.push(puzzleId);
+  const row = pageRow(data, pageNumber);
+  if (helped) {
+    if (!row.solved.includes(puzzleId) && !row.helped.includes(puzzleId)) row.helped.push(puzzleId);
+  } else {
+    row.helped = row.helped.filter((id) => id !== puzzleId);
+    if (!row.solved.includes(puzzleId)) row.solved.push(puzzleId);
+  }
   data.pages[key] = row;
   saveScores(data);
-  return row.solved.length;
+}
+
+function clearPage(pageNumber) {
+  const data = loadScores();
+  delete data.pages[String(pageNumber)];
+  saveScores(data);
+}
+
+function clearAll() {
+  saveScores({ v: 1, pages: {} });
 }
 
 function show(name) {
   listView.hidden = name !== "list";
   playView.hidden = name !== "play";
   checkView.hidden = name !== "check";
+}
+
+function playUci(chess, uci) {
+  const spec = { from: uci.slice(0, 2), to: uci.slice(2, 4) };
+  if (uci.length > 4) spec.promotion = uci[4];
+  return chess.move(spec);
+}
+
+function playUserMove(chess, from, to) {
+  try {
+    return chess.move({ from, to });
+  } catch {
+    return chess.move({ from, to, promotion: "q" });
+  }
 }
 
 function dests(chess) {
@@ -152,17 +212,26 @@ function renderList() {
         <section class="group">
           <h2>${escapeHtml(group.title)}</h2>
           ${group.pages.map((entry) => {
-            const solved = solvedSet(entry.page);
-            const score = solved.size;
-            const done = score === 6;
-            return `<a class="page-link" href="#/page/${entry.id}">
-              <strong>Page ${entry.page}</strong>
-              <span class="score-pill ${done ? "done" : ""}">Score ${score} / 6${done ? " · done" : ""}</span>
-              <span>${escapeHtml(entry.title)}</span>
-            </a>`;
+            const done = solvedSet(entry.page).size === 6;
+            return `<div class="page-row">
+              <a class="page-link" href="#/page/${entry.id}">
+                <strong>Page ${entry.page}</strong>
+                <span class="score-pill ${done ? "done" : ""}">${scoreMarkup(entry.page)}${done ? " · done" : ""}</span>
+                <span>${escapeHtml(entry.title)}</span>
+              </a>
+              <button type="button" class="redo" data-redo="${entry.page}">Redo this page</button>
+            </div>`;
           }).join("")}
         </section>`).join("")}
+      <button type="button" class="quiet reset-all" id="open-reset">Reset all chess progress</button>
     </div>`;
+  listView.querySelectorAll("[data-redo]").forEach((button) => {
+    button.addEventListener("click", () => {
+      clearPage(button.dataset.redo);
+      renderList();
+    });
+  });
+  document.getElementById("open-reset").onclick = () => document.getElementById("reset-all").showModal();
 }
 
 function escapeHtml(value) {
@@ -195,11 +264,11 @@ function mountPuzzle() {
   play.chess = new Chess(puzzle.fen);
   play.busy = false;
   play.revealed = false;
-  play.hinted = false;
+  play.usedHint = false;
+  play.hintLevel = 0;
   play.startMaterial = material(play.chess);
   play.note = puzzleGoal(entry.data.goal);
   play.tone = "";
-  const solved = solvedSet(entry.page);
   playView.innerHTML = `
     <div class="wrap">
       <div class="play-top">
@@ -207,7 +276,7 @@ function mountPuzzle() {
           <p class="kicker">Page ${entry.page} · ${play.index + 1} of 6</p>
           <h1>${escapeHtml(entry.title)}</h1>
         </div>
-        <p class="score-pill">Score ${solved.size} / 6</p>
+        <p class="score-pill">${scoreMarkup(entry.page)}</p>
       </div>
       <div class="stage">
         <div class="board-wrap"><div id="board"></div></div>
@@ -217,6 +286,7 @@ function mountPuzzle() {
             <button type="button" class="quiet" id="hint">Hint</button>
             <button type="button" class="quiet" id="solve">Show the answer</button>
             <button type="button" class="go" id="next" hidden>Next</button>
+            <button type="button" class="quiet" id="redo-page">Redo this page</button>
           </div>
           <p class="lede"><a href="#/check/${entry.id}">Check these diagrams</a> · <a href="#/">All pages</a></p>
         </div>
@@ -227,6 +297,7 @@ function mountPuzzle() {
     orientation: "white",
     coordinates: true,
     movable: { color: "white", free: false, dests: dests(play.chess), events: { after: onMove } },
+    premovable: { enabled: false },
     draggable: { enabled: true, showGhost: true },
     selectable: { enabled: true },
     animation: { enabled: true },
@@ -235,6 +306,11 @@ function mountPuzzle() {
   document.getElementById("hint").onclick = () => hint();
   document.getElementById("solve").onclick = () => showAnswer();
   document.getElementById("next").onclick = () => advance();
+  document.getElementById("redo-page").onclick = () => {
+    clearPage(entry.page);
+    play.index = 0;
+    mountPuzzle();
+  };
 }
 
 function puzzleGoal(goal) {
@@ -251,6 +327,7 @@ function paintNote() {
 function setMovable(on) {
   play.ground.set({
     fen: play.chess.fen(),
+    turnColor: play.chess.turn() === "w" ? "white" : "black",
     movable: on ? { color: "white", dests: dests(play.chess) } : { color: undefined, dests: new Map() },
   });
 }
@@ -259,9 +336,14 @@ async function onMove(from, to) {
   if (!play || play.busy) return;
   const puzzle = play.entry.data.puzzles[play.index];
   const before = play.chess.fen();
-  const played = play.chess.move({ from, to, promotion: "q" });
+  let played;
+  try {
+    played = playUserMove(play.chess, from, to);
+  } catch {
+    played = null;
+  }
   if (!played) {
-    play.ground.set({ fen: before });
+    setMovable(true);
     return;
   }
   play.busy = true;
@@ -310,7 +392,7 @@ async function accepts(puzzle, before, played, chess) {
 
 async function afterAccepted() {
   if (play.entry.data.goal === "mate") {
-    if (play.chess.isCheckmate()) finish(true, play.revealed ? "That’s the answer." : "Mate.");
+    if (play.chess.isCheckmate()) finish("Mate.");
     else {
       play.chess.undo();
       play.note = "Try again.";
@@ -326,7 +408,8 @@ async function afterAccepted() {
   let replyUci = null;
   if (scripted) {
     const probe = new Chess(play.chess.fen());
-    const legal = probe.move({ from: scripted.slice(0, 2), to: scripted.slice(2, 4), promotion: scripted[4] || "q" });
+    let legal = null;
+    try { legal = playUci(probe, scripted); } catch { legal = null; }
     if (legal) replyUci = scripted;
   }
   if (!replyUci) {
@@ -338,48 +421,60 @@ async function afterAccepted() {
   }
   if (replyUci && replyUci !== "(none)") {
     const copy = new Chess(play.chess.fen());
-    const replyMove = copy.move({ from: replyUci.slice(0, 2), to: replyUci.slice(2, 4), promotion: replyUci[4] || "q" });
+    let replyMove = null;
+    try { replyMove = playUci(copy, replyUci); } catch { replyMove = null; }
     if (replyMove && material(copy) < play.startMaterial + 2) {
-      play.chess.move({ from: replyUci.slice(0, 2), to: replyUci.slice(2, 4), promotion: replyUci[4] || "q" });
+      playUci(play.chess, replyUci);
       play.ground.set({ fen: play.chess.fen() });
       play.note = "Your move.";
       play.tone = "";
+      play.hintLevel = 0;
       play.busy = false;
       setMovable(true);
+      play.ground.set({ drawable: { autoShapes: [] } });
       paintNote();
       return;
     }
   }
   if (gained) {
     if (replyUci && replyUci !== "(none)") {
-      play.chess.move({ from: replyUci.slice(0, 2), to: replyUci.slice(2, 4), promotion: replyUci[4] || "q" });
+      playUci(play.chess, replyUci);
       play.ground.set({ fen: play.chess.fen() });
     }
-    finish(true, "That’s the piece.");
+    finish("That’s the piece.");
     return;
   }
   if (replyUci && replyUci !== "(none)") {
-    play.chess.move({ from: replyUci.slice(0, 2), to: replyUci.slice(2, 4), promotion: replyUci[4] || "q" });
+    try { playUci(play.chess, replyUci); } catch { /* the reply was only a probe */ }
     play.ground.set({ fen: play.chess.fen() });
   }
   play.note = "Keep going.";
   play.tone = "good";
+  play.hintLevel = 0;
   play.busy = false;
   setMovable(true);
+  play.ground.set({ drawable: { autoShapes: [] } });
   paintNote();
 }
 
-function finish(scored, message) {
+function finish(message) {
   const puzzle = play.entry.data.puzzles[play.index];
-  if (scored && !play.revealed) rememberSolve(play.entry.page, puzzle.id);
-  const solved = solvedSet(play.entry.page);
-  play.note = message;
-  play.tone = "good";
+  const helped = play.revealed || play.usedHint;
+  rememberOutcome(play.entry.page, puzzle.id, helped);
+  if (helped) {
+    play.note = play.revealed
+      ? "Solved with the answer. It stays off the score."
+      : "Solved with a hint. It stays off the score.";
+    play.tone = "help";
+  } else {
+    play.note = message;
+    play.tone = "good";
+  }
   play.busy = true;
   setMovable(false);
   paintNote();
   const score = playView.querySelector(".score-pill");
-  if (score) score.textContent = `Score ${solved.size} / 6`;
+  if (score) score.innerHTML = scoreMarkup(play.entry.page);
   const next = document.getElementById("next");
   next.hidden = false;
   next.textContent = play.index === 5 ? "Back to the pages" : "Next diagram";
@@ -394,13 +489,18 @@ function advance() {
   mountPuzzle();
 }
 
+function pieceWord(square) {
+  const piece = play.chess.get(square);
+  return piece ? PIECE_WORD[piece.type] || "piece" : "piece";
+}
+
 async function hint() {
   if (!play || play.busy) return;
   const puzzle = play.entry.data.puzzles[play.index];
   const step = puzzle.line && puzzle.line[play.chess.history().length];
   let from = step ? step.slice(0, 2) : "";
   let to = step ? step.slice(2, 4) : "";
-  if (!step && play.chess.history().length) {
+  if (!from) {
     try {
       const brain = await ensureEngine();
       const best = await brain.best(play.chess.fen());
@@ -408,15 +508,26 @@ async function hint() {
         from = best.move.slice(0, 2);
         to = best.move.slice(2, 4);
       }
-    } catch { /* the stored first move is enough on diagram 1 */ }
+    } catch {
+      play.note = "The hint did not load. Try again.";
+      play.tone = "bad";
+      paintNote();
+      return;
+    }
   }
-  const shapes = [];
-  if (from) shapes.push({ orig: from, brush: "green" });
-  if (play.hinted && to) shapes.push({ orig: from, dest: to, brush: "green" });
-  const showingMove = play.hinted && Boolean(to);
-  play.hinted = true;
+  if (!from) return;
+  const word = pieceWord(from);
+  const shapes = [{ orig: from, brush: "green", modifiers: { lineWidth: 16 } }];
+  let note = `Move the circled ${word}.`;
+  if (play.hintLevel >= 1 && to) {
+    shapes.push({ orig: from, dest: to, brush: "yellow" });
+    shapes.push({ orig: to, brush: "yellow", modifiers: { lineWidth: 16 } });
+    note = `Move the ${word} along the arrow.`;
+  }
+  play.hintLevel = Math.min(2, play.hintLevel + 1);
+  play.usedHint = true;
   play.ground.set({ drawable: { autoShapes: shapes } });
-  play.note = showingMove ? "Try that square." : "Use this piece.";
+  play.note = note;
   play.tone = "";
   paintNote();
 }
@@ -426,17 +537,15 @@ async function showAnswer() {
   play.revealed = true;
   play.busy = true;
   const puzzle = play.entry.data.puzzles[play.index];
-  if (play.chess.history().length === 0 && puzzle.line && puzzle.line[0]) {
-    const uci = puzzle.line[0];
-    play.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || "q" });
-    play.ground.set({ fen: play.chess.fen() });
+  const line = puzzle.line || [];
+  while (line[play.chess.history().length]) {
+    const uci = line[play.chess.history().length];
+    let moved = null;
+    try { moved = playUci(play.chess, uci); } catch { moved = null; }
+    if (!moved) break;
   }
-  await afterAccepted(puzzle);
-  play.revealed = true;
-  if (play.entry.data.goal === "mate" && play.chess.isCheckmate()) {
-    play.note = "That’s the answer.";
-    paintNote();
-  }
+  play.ground.set({ fen: play.chess.fen() });
+  finish(play.entry.data.goal === "mate" ? "Mate." : "That’s the piece.");
 }
 
 function openCheck(id) {
@@ -494,6 +603,54 @@ function route() {
   else if (check) openCheck(check[1]);
   else { show("list"); renderList(); }
 }
+
+const resetDialog = document.getElementById("reset-all");
+const resetHold = document.getElementById("reset-hold");
+const HOLD_MS = 1400;
+let holding = false;
+let holdFrame = 0;
+
+function startHold(event) {
+  if (holding) return;
+  holding = true;
+  const start = performance.now();
+  if (event && event.pointerId != null) {
+    try { resetHold.setPointerCapture(event.pointerId); } catch { /* already released */ }
+  }
+  const step = (now) => {
+    if (!holding) return;
+    const amount = Math.min(1, (now - start) / HOLD_MS);
+    resetHold.style.setProperty("--hold", String(amount));
+    if (amount >= 1) {
+      holding = false;
+      clearAll();
+      resetHold.style.setProperty("--hold", "0");
+      resetDialog.close();
+      if (!listView.hidden) renderList();
+      if (play && !playView.hidden) {
+        play.index = 0;
+        mountPuzzle();
+      }
+      return;
+    }
+    holdFrame = requestAnimationFrame(step);
+  };
+  holdFrame = requestAnimationFrame(step);
+}
+
+function cancelHold() {
+  if (!holding) return;
+  holding = false;
+  cancelAnimationFrame(holdFrame);
+  resetHold.style.setProperty("--hold", "0");
+}
+
+resetHold.addEventListener("pointerdown", startHold);
+resetHold.addEventListener("pointerup", cancelHold);
+resetHold.addEventListener("pointercancel", cancelHold);
+resetHold.addEventListener("contextmenu", (event) => event.preventDefault());
+document.getElementById("reset-cancel").addEventListener("click", () => resetDialog.close());
+resetDialog.addEventListener("close", cancelHold);
 
 window.addEventListener("hashchange", route);
 route();

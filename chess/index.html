@@ -16,6 +16,12 @@
   <main id="view-list" class="view"></main>
   <main id="view-play" class="view" hidden></main>
   <main id="view-check" class="view" hidden></main>
+  <dialog id="reset-all" aria-labelledby="reset-all-title">
+    <h2 id="reset-all-title">Reset all chess progress?</h2>
+    <p>This clears every page’s score on this device.</p>
+    <button type="button" class="hold" id="reset-hold"><span>Hold to reset</span></button>
+    <button type="button" class="go" id="reset-cancel" autofocus>Keep my scores</button>
+  </dialog>
   <script type="module" src="app.js"></script>
 </body>
 </html>
